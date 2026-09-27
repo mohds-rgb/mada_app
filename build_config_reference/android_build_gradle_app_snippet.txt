@@ -1,0 +1,43 @@
+// ==========================================================================
+// مرجع فقط — أضِف هذا المحتوى يدوياً داخل android/app/build.gradle
+// (يُنشأ هذا الملف تلقائياً فقط بعد تشغيلك `flutter create .` أول مرة —
+// انظر README.md بالجذر للخطوات الكاملة).
+// ==========================================================================
+//
+// 1) تأكد أن هذا السطر موجود قرب أعلى الملف (بعد تطبيق Flutter/Kotlin
+//    plugins)، وأنه يُطبَّق *بعد* تحديد defaultConfig/flavors أدناه:
+//        apply plugin: 'com.google.gms.google-services'
+//
+//    وفي أعلى الملف ضمن plugins { ... } (أو buildscript classpath القديم):
+//        id "com.google.gms.google-services" version "4.4.2" apply false
+//    ثم ضمن نفس plugins { ... } لهذا الملف (app/build.gradle) فقط:
+//        id "com.google.gms.google-services"
+//
+// 2) داخل android { ... } أضف:
+
+    flavorDimensions "environment"
+
+    productFlavors {
+        dev {
+            dimension "environment"
+            applicationId "com.mada.app.dev"
+            resValue "string", "app_name", "مدى (تطوير)"
+        }
+        prod {
+            dimension "environment"
+            applicationId "com.mada.app"
+            resValue "string", "app_name", "مدى"
+        }
+    }
+
+// 3) تأكد أن minSdkVersion >= 28 (بند 5: Android 9 / API 28+):
+//        defaultConfig {
+//            minSdkVersion 28
+//            ...
+//        }
+//
+// 4) ضع ملفات google-services.json بالمسارات التالية (وليس مباشرة تحت android/app/):
+//        android/app/src/dev/google-services.json   ← ملف mada-dev-5ca8e
+//        android/app/src/prod/google-services.json  ← ملف mada-prod
+//
+//    Gradle يقرأ الملف المطابق تلقائياً حسب الـ flavor عند البناء.

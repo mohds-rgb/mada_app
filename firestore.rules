@@ -1,0 +1,365 @@
+rules_version = '2';
+
+// ==================================================================================
+// قواعد أمان Firestore — MADA | مدى (بند 12)
+// deny-by-default: أي مجموعة غير مذكورة صراحة = ممنوعة كلياً.
+//
+// استراتيجية تحديد الدور (قرار معماري موثَّق — PROJECT_STATE.md، المرحلة 1):
+// - owner/admin: حصراً عبر Custom Claims (request.auth.token.role) —
+//   تُضبط يدوياً عبر admin_scripts/set_role.js فقط (بند 3-ب، 12-أ). لا بديل.
+// - customer/driver/officeAdmin: عبر حقل Firestore الموثَّق self-declared
+//   بمستند users/{uid}.role — مسموح بالإنشاء الذاتي فقط (بند 3-أ-4: تفعيل
+//   فوري للعميل)، وممنوع تعديله ذاتياً بعد الإنشاء (تُفرض هذه الحماية هنا).
+//   هذا يتطلب get() إضافية بكل تحقق دور — تكلفة قراءة مقبولة بمرحلة الـMVP،
+//   وسطها إلى Custom Claims تلقائية عبر Cloud Function عند الترقية لـBlaze
+//   (بند 17) — قيد مؤقت موثَّق.
+//
+// استثناء مؤقت موثَّق (بند 6-8، 17): طالما المشروع على باقة Spark بلا
+// Cloud Functions، الحماية من التلاعب المالي (wallets، walletBalance،
+// commissionSettlements) تعتمد فقط على هذه القواعد.
+// ==================================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // -------------------- دوال مساعدة --------------------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function claimRole() {
+      return isSignedIn() ? request.auth.token.role : null;
+    }
+
+    function isOwner() {
+      return claimRole() == 'owner';
+    }
+
+    function isAdmin() {
+      return claimRole() == 'admin';
+    }
+
+    function isOwnerOrAdmin() {
+      return isOwner() || isAdmin();
+    }
+
+    // قراءة الدور الذاتي من مستند users/{uid} — لأدوار customer/driver/officeAdmin فقط.
+    function selfUserDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isCustomer() {
+      return isSignedIn() && selfUserDoc().role == 'customer';
+    }
+
+    function isDriver() {
+      return isSignedIn() && selfUserDoc().role == 'driver';
+    }
+
+    function isOfficeAdmin() {
+      return isSignedIn() && selfUserDoc().role == 'officeAdmin';
+    }
+
+    function isSelf(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function accountActive() {
+      return isSignedIn() && selfUserDoc().accountStatus == 'active';
+    }
+
+    // -------------------- users --------------------
+    // إنشاء المستند الأول مسموح للمستخدم لنفسه فقط، وبدور غير owner/admin أبداً
+    // (بند 3-ب: owner/admin تُمنح فقط عبر admin_scripts/set_role.js Custom Claims،
+    // لا تُكتَب هنا إطلاقاً). بعد الإنشاء: لا يمكن للمستخدم تعديل role أو
+    // accountStatus أبداً بنفسه — فقط owner/admin (عبر Custom Claims).
+    match /users/{uid} {
+      allow read: if isSelf(uid) || isOwnerOrAdmin();
+      allow create: if isSelf(uid)
+        && request.resource.data.role in ['customer', 'driver', 'officeAdmin']
+        && request.resource.data.accountStatus == 'active';
+      // حظر نهائي (accountStatus='banned') حصراً لـowner — بند 8-المرحلة
+      // 4.5، 13-ب-3. الأدمن التشغيلي يقدر فقط على 'active'/'suspended'.
+      allow update: if (isSelf(uid)
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.accountStatus == resource.data.accountStatus)
+        || isOwner()
+        || (isAdmin() && request.resource.data.accountStatus != 'banned');
+      allow delete: if false; // لا حذف أبداً — تعليق فقط (بند 13-ب-4)
+    }
+
+    // -------------------- drivers --------------------
+    // إنشاء المستند الأول مسموح للسائق لنفسه (جزء من تدفق اختيار الدور،
+    // بند 3-أ-4) بحالة pending إلزامياً. الحقول المالية والحالة محمية بعدها.
+    match /drivers/{uid} {
+      allow read: if isSelf(uid) || isOwnerOrAdmin() || isOfficeAdmin() || isCustomer();
+      allow create: if isSelf(uid)
+        && request.resource.data.status == 'pending'
+        && request.resource.data.walletBalance == 0;
+      // اعتماد وثائق السائقين مسموح للأدمن التشغيلي أيضاً، لكن الحظر
+      // (status='blocked') حصراً لـowner — بند 8-المرحلة 4.5.
+      allow update: if isOwner()
+        || (isAdmin() && request.resource.data.status != 'blocked' && request.resource.data.walletBalance == resource.data.walletBalance)
+        // خصم عمولة تلقائي مع كل رحلة مكتملة — بند 10 (نفس تحقّق wallets).
+        || (isSelf(uid) && isDriver() && request.resource.data.status == resource.data.status
+            && _isValidDriverWalletDeduction(uid, resource.data.walletBalance))
+        || (isSelf(uid)
+            && request.resource.data.status == resource.data.status
+            && request.resource.data.walletBalance == resource.data.walletBalance);
+      allow delete: if false;
+    }
+
+    // -------------------- offices --------------------
+    // إنشاء ذاتي مسموح لصاحب الحساب فقط لمكتبه الخاص (officeId == uid بالاتفاقية،
+    // بند 3-أ-4)، بحالة اعتماد pending إلزامياً. اعتماد المالك لاحقاً عبر approvalStatus.
+    match /offices/{officeId} {
+      allow read: if isSignedIn();
+      // إدارة المكاتب (اعتماد/حظر/اشتراك) حصراً لـowner — بند 8-المرحلة
+      // 4.5: الأدمن التشغيلي "دون... إدارة الاشتراكات".
+      allow create: if isOwner()
+        || (isSelf(officeId)
+            && request.resource.data.ownerAdminUid == request.auth.uid
+            && request.resource.data.approvalStatus == 'pending');
+      allow update: if isOwner()
+        || (isSelf(officeId)
+            && resource.data.ownerAdminUid == request.auth.uid
+            && request.resource.data.approvalStatus == resource.data.approvalStatus
+            && request.resource.data.subscriptionStatus == resource.data.subscriptionStatus);
+      allow delete: if isOwner();
+    }
+
+    // -------------------- subscriptionPayments --------------------
+    match /subscriptionPayments/{id} {
+      allow read: if isOwnerOrAdmin()
+        || (isOfficeAdmin() && resource.data.officeId != null);
+      allow write: if isOwner(); // مالي بحت — owner حصراً (بند 8-المرحلة 4.5)
+    }
+
+    // -------------------- vehicles --------------------
+    // عربة تنتمي حصراً لمكتب مالكها (officeId == uid المكتب بالاتفاقية،
+    // بند 3-أ-4) — لا يمكن لمكتب إدارة سيارة مكتب آخر.
+    match /vehicles/{vehicleId} {
+      allow read: if isSignedIn(); // العملاء يتصفحون التأجير
+      allow create: if isOwnerOrAdmin()
+        || (isOfficeAdmin() && request.resource.data.officeId == request.auth.uid);
+      allow update, delete: if isOwnerOrAdmin()
+        || (isOfficeAdmin() && resource.data.officeId == request.auth.uid
+            && request.resource.data.officeId == request.auth.uid);
+    }
+
+    // -------------------- rideRequests --------------------
+    match /rideRequests/{id} {
+      allow read: if isOwnerOrAdmin()
+        || (isSignedIn() && (resource.data.customerId == request.auth.uid || resource.data.driverId == request.auth.uid))
+        // يسمح لسائق متصل بتصفح الطلبات غير المُعيَّنة بعد (بند 8-المرحلة 2).
+        || (isDriver() && resource.data.status == 'searching' && resource.data.driverId == null);
+      allow create: if (isCustomer() && accountActive() && request.resource.data.customerId == request.auth.uid)
+        || isOwnerOrAdmin(); // طلب هاتفي بالنيابة عن عميل — بند 8-المرحلة 4-د
+      allow update: if isOwnerOrAdmin()
+        // إجراءات العميل صاحب الطلب (إلغاء، إلخ) — الأجرة غير قابلة للتلاعب.
+        || (isSignedIn() && resource.data.customerId == request.auth.uid
+            && request.resource.data.fare == resource.data.fare)
+        // إجراءات السائق المُعيَّن فعلاً على الطلب (وصل/بدء/إنهاء).
+        || (isSignedIn() && resource.data.driverId == request.auth.uid
+            && request.resource.data.fare == resource.data.fare)
+        // "قبول" الطلب لأول مرة: سائق متاح يُعيِّن نفسه على طلب غير مُعيَّن بعد.
+        || (isDriver() && resource.data.status == 'searching' && resource.data.driverId == null
+            && request.resource.data.driverId == request.auth.uid
+            && request.resource.data.status == 'accepted'
+            && request.resource.data.fare == resource.data.fare);
+      allow delete: if false;
+    }
+
+    // -------------------- deliveryRequests --------------------
+    match /deliveryRequests/{id} {
+      allow read: if isOwnerOrAdmin()
+        || (isSignedIn() && (resource.data.customerId == request.auth.uid || resource.data.driverId == request.auth.uid))
+        || (isDriver() && resource.data.status == 'searching' && resource.data.driverId == null);
+      allow create: if (isCustomer() && accountActive() && request.resource.data.customerId == request.auth.uid)
+        || isOwnerOrAdmin(); // طلب هاتفي بالنيابة عن عميل — بند 8-المرحلة 4-د
+      allow update: if isOwnerOrAdmin()
+        || (isSignedIn() && resource.data.customerId == request.auth.uid
+            && request.resource.data.fare == resource.data.fare)
+        || (isSignedIn() && resource.data.driverId == request.auth.uid
+            && request.resource.data.fare == resource.data.fare)
+        || (isDriver() && resource.data.status == 'searching' && resource.data.driverId == null
+            && request.resource.data.driverId == request.auth.uid
+            && request.resource.data.status == 'accepted'
+            && request.resource.data.fare == resource.data.fare);
+      allow delete: if false;
+    }
+
+    // -------------------- rentalBookings --------------------
+    match /rentalBookings/{id} {
+      allow read: if isOwnerOrAdmin()
+        || (isSignedIn() && (resource.data.customerId == request.auth.uid))
+        || (isOfficeAdmin() && resource.data.officeId == request.auth.uid);
+      allow create: if (isCustomer() && accountActive() && request.resource.data.customerId == request.auth.uid)
+        || isOwnerOrAdmin(); // طلب هاتفي بالنيابة عن عميل — بند 8-المرحلة 4-د
+      allow update: if isOwnerOrAdmin()
+        || (isSignedIn() && resource.data.customerId == request.auth.uid)
+        || (isOfficeAdmin() && resource.data.officeId == request.auth.uid);
+      allow delete: if false;
+    }
+
+    // -------------------- wallets --------------------
+    // بند 10: خصم العمولة تلقائي مع كل رحلة مكتملة — لا يدوي بالكامل كما
+    // كان مفترَضاً بمراحل سابقة (تصحيح موثَّق بالمرحلة 5). يبقى السائق
+    // عاجزاً عن التلاعب: القاعدة تُعيد حساب العمولة بنفسها من مصدرين لا
+    // يقدر السائق على تعديلهما (rideRequests.fare ثابتة بعد الإنشاء،
+    // adminSettings.commissionPercentage بيد owner حصراً) — فتحقّق مطابقة
+    // المبلغ يقع على الخادم لا على ثقة بالعميل.
+    match /wallets/{uid} {
+      allow read: if isSelf(uid) || isOwnerOrAdmin();
+      allow create: if isOwner()
+        || (isSelf(uid) && isDriver() && _isValidWalletDeduction(uid, 0));
+      allow update: if isOwner()
+        || (isSelf(uid) && isDriver() && _isValidWalletDeduction(uid, resource.data.balance));
+    }
+
+    function _rideCommissionAmount(rideId) {
+      let ride = get(/databases/$(database)/documents/rideRequests/$(rideId)).data;
+      let pct = get(/databases/$(database)/documents/adminSettings/global).data.commissionPercentage;
+      return ride.fare * pct / 100;
+    }
+
+    function _rideIsValidForDeduction(uid, rideId) {
+      let ride = get(/databases/$(database)/documents/rideRequests/$(rideId)).data;
+      return ride.driverId == uid && ride.status == 'completed' && ride.walletDeducted != true;
+    }
+
+    // wallets/{uid}.balance — يتحقق أن الرحلة المُشار إليها (lastChargedRideId)
+    // صالحة للخصم وأن المبلغ الجديد يطابق البالغ السابق ناقص العمولة المُعاد
+    // حسابها من مصدرين لا يقدر السائق على التلاعب بهما.
+    function _isValidWalletDeduction(uid, previousBalance) {
+      let rideId = request.resource.data.lastChargedRideId;
+      return _rideIsValidForDeduction(uid, rideId)
+        && request.resource.data.balance == previousBalance - _rideCommissionAmount(rideId);
+    }
+
+    // drivers/{uid}.walletBalance — نفس المنطق بحقل مختلف الاسم (walletBalance
+    // لا balance)، يُزامَن مع wallets/{uid} بنفس المعاملة (بند 10).
+    function _isValidDriverWalletDeduction(uid, previousBalance) {
+      let rideId = request.resource.data.lastChargedRideId;
+      return _rideIsValidForDeduction(uid, rideId)
+        && request.resource.data.walletBalance == previousBalance - _rideCommissionAmount(rideId);
+    }
+
+    // -------------------- commissionSettlements --------------------
+    match /commissionSettlements/{id} {
+      allow read: if isOwnerOrAdmin() || (isSignedIn() && resource.data.driverId == request.auth.uid);
+      allow write: if isOwner(); // مالي بحت — owner حصراً (بند 8-المرحلة 4.5)
+    }
+
+    // -------------------- ratings --------------------
+    match /ratings/{id} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.fromUserId == request.auth.uid
+        && request.resource.data.stars is int
+        && request.resource.data.stars >= 1 && request.resource.data.stars <= 5;
+      allow update, delete: if false; // تقييم غير قابل للتعديل بعد الإرسال
+    }
+
+    // -------------------- reports --------------------
+    // القرار النهائي (decision/resolvedBy) حصراً owner (بند 13-ب-3).
+    match /reports/{id} {
+      allow read: if isOwnerOrAdmin()
+        || (isSignedIn() && (resource.data.reporterId == request.auth.uid || resource.data.reportedUserId == request.auth.uid));
+      allow create: if isSignedIn() && request.resource.data.reporterId == request.auth.uid
+        && request.resource.data.status == 'open';
+      allow update: if isOwner()
+        || (isAdmin() && request.resource.data.decision != 'ban'); // الأدمن التشغيلي لا يحظر نهائياً (بند 13-ب-3)
+      allow delete: if false;
+    }
+
+    // -------------------- supportTickets --------------------
+    match /supportTickets/{id} {
+      allow read: if isOwnerOrAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if isOwnerOrAdmin();
+      allow delete: if false;
+    }
+
+    // -------------------- promoCodes --------------------
+    match /promoCodes/{code} {
+      allow read: if isSignedIn() && resource.data.isActive == true;
+      allow write: if isOwner(); // مالي بحت — owner حصراً (بند 8-المرحلة 4.5)
+    }
+
+    // -------------------- sosIncidents (أولوية قصوى — بند 22) --------------------
+    match /sosIncidents/{id} {
+      allow read: if isOwnerOrAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if isOwnerOrAdmin();
+      allow delete: if false;
+    }
+
+    // -------------------- trustedContacts --------------------
+    match /trustedContacts/{id} {
+      allow read, write: if isCustomer() && request.resource.data.customerId == request.auth.uid;
+      allow read: if isOwnerOrAdmin();
+    }
+
+    // -------------------- auditLogs (append-only، غير قابل للحذف أبداً) --------------------
+    match /auditLogs/{id} {
+      allow read: if isOwnerOrAdmin();
+      allow create: if isOwnerOrAdmin();
+      allow update, delete: if false; // بلا استثناء — بند 7، 13-ج
+    }
+
+    // -------------------- adminSettings --------------------
+    match /adminSettings/{docId} {
+      allow read: if isSignedIn(); // كل الأدوار تحتاج الأسعار/الحدود للعمل
+      allow write: if isOwner(); // صلاحية فردية للمالك (بند 21)
+    }
+
+    // -------------------- vehicleLocations --------------------
+    match /vehicleLocations/{vehicleId} {
+      allow read: if isSignedIn();
+      // العميل المستأجر يشارك موقعه أثناء حجز نشط فقط (بند 11، موافقة
+      // صريحة بالتطبيق) — نفس مستوى الثقة الممنوح أصلاً للسائق/المكتب على
+      // هذه المجموعة تحديداً (بيانات موقع تشغيلية، ليست مالية أو حسّاسة).
+      allow write: if isOwnerOrAdmin() || isDriver() || isOfficeAdmin() || isCustomer();
+    }
+
+    // -------------------- loyaltyTransactions --------------------
+    match /loyaltyTransactions/{id} {
+      allow read: if isOwnerOrAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow write: if isOwner(); // مالي بحت — owner حصراً (بند 8-المرحلة 4.5)
+    }
+
+    // -------------------- referralRedemptions --------------------
+    match /referralRedemptions/{id} {
+      allow read: if isOwnerOrAdmin() || (isSignedIn() && resource.data.newUserId == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.newUserId == request.auth.uid;
+      allow update, delete: if isOwnerOrAdmin();
+    }
+
+    // -------------------- lostItems --------------------
+    match /lostItems/{id} {
+      allow read: if isOwnerOrAdmin() || (isSignedIn() && resource.data.reporterId == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.reporterId == request.auth.uid;
+      allow update: if isOwnerOrAdmin();
+      allow delete: if false;
+    }
+
+    // -------------------- businessContracts --------------------
+    match /businessContracts/{id} {
+      allow read, write: if isOwner(); // مالي بحت — owner حصراً (بند 8-المرحلة 4.5، 14)
+    }
+
+    // -------------------- bannedDevices --------------------
+    match /bannedDevices/{fingerprint} {
+      // قراءة بمعرّف دقيق فقط (لا استعلام قوائم) — يسمح لأي مستخدم موقِّع
+      // دخوله حديثاً بالتحقق من بصمة جهازه هو تحديداً قبل إنشاء حسابه
+      // (منع الالتفاف على الحظر، بند 12-هـ)، بلا كشف بيانات حساسة.
+      allow read: if isSignedIn();
+      allow write: if isOwner(); // حظر نهائي — owner حصراً (بند 8-المرحلة 4.5، 13-ب-3)
+    }
+
+    // أي مسار آخر غير مذكور أعلاه: ممنوع كلياً (deny-by-default).
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

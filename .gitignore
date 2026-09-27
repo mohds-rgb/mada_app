@@ -1,0 +1,22 @@
+# Flutter/Dart
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.iml
+.idea/
+
+# مفاتيح وملفات حساسة — لا تُرفع أبداً
+android/app/src/dev/google-services.json
+android/app/src/prod/google-services.json
+ios/Runner/GoogleService-Info.plist
+admin_scripts/service_account.json
+admin_scripts/node_modules/
+*.jks
+*.keystore
+key.properties
+
+# نظام التشغيل
+.DS_Store
+Thumbs.db

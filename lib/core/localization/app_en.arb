@@ -1,0 +1,22 @@
+{
+  "@@locale": "en",
+  "appName": "MADA",
+  "appTagline": "Every Destination Closer",
+  "ownershipNotice": "© M&M TECH — All Rights Reserved",
+  "roleSelectionTitle": "Choose Your Role",
+  "roleCustomer": "Customer",
+  "roleDriver": "Driver",
+  "roleOffice": "Rental Office",
+  "roleCustomerDesc": "Request a ride, rent a car, or send a package",
+  "roleDriverDesc": "Join as a driver and provide rides and deliveries",
+  "roleOfficeDesc": "Manage your fleet and office bookings",
+  "loginTitle": "Sign In",
+  "emailHint": "Email address",
+  "sendLoginLink": "Send Login Link",
+  "termsTitle": "Terms & Conditions and Privacy Policy",
+  "termsAgree": "I agree to the Terms & Conditions and Privacy Policy",
+  "continueLabel": "Continue",
+  "pendingReviewTitle": "Under Review",
+  "pendingReviewBody": "Your application is under review by management, we'll notify you once approved",
+  "loading": "Loading..."
+}

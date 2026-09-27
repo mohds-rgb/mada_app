@@ -1,0 +1,22 @@
+{
+  "@@locale": "ar",
+  "appName": "مدى",
+  "appTagline": "كل وجهة أقرب",
+  "ownershipNotice": "© M&M TECH — جميع الحقوق محفوظة",
+  "roleSelectionTitle": "اختر دورك",
+  "roleCustomer": "عميل",
+  "roleDriver": "سائق",
+  "roleOffice": "مكتب تأجير",
+  "roleCustomerDesc": "اطلب رحلة، استأجر سيارة، أو أرسل طرداً",
+  "roleDriverDesc": "انضم كسائق ووفّر رحلات وتوصيل",
+  "roleOfficeDesc": "أدر أسطول سياراتك وحجوزات مكتبك",
+  "loginTitle": "تسجيل الدخول",
+  "emailHint": "البريد الإلكتروني",
+  "sendLoginLink": "إرسال رابط الدخول",
+  "termsTitle": "الشروط والأحكام وسياسة الخصوصية",
+  "termsAgree": "أوافق على الشروط والأحكام وسياسة الخصوصية",
+  "continueLabel": "متابعة",
+  "pendingReviewTitle": "قيد المراجعة",
+  "pendingReviewBody": "طلبك قيد المراجعة من قبل الإدارة، سنُعلمك فور الاعتماد",
+  "loading": "جارٍ التحميل..."
+}

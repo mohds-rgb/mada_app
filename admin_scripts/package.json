@@ -1,0 +1,9 @@
+{
+  "name": "mada-admin-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "سكربتات إدارية لمشروع MADA — تُشغَّل من جهاز شخصي فقط، لا تُنشر أبداً مع التطبيق.",
+  "dependencies": {
+    "firebase-admin": "^12.6.0"
+  }
+}

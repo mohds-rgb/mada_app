@@ -1,0 +1,71 @@
+{
+  "_note": "بيانات تجريبية واقعية لمحافظة درعا (بند 6-7). للاستخدام في المحاكاة والاختبار فقط — لا تُستورد لبيئة mada-prod أبداً.",
+
+  "adminSettings": {
+    "global": {
+      "commissionPercentage": 15,
+      "deliveryBaseFare": 3000,
+      "searchRadiusKm": 5,
+      "callCenterNumbers": ["+963-11-000-0000"],
+      "minSupportedVersion": "1.0.0",
+      "baseFare": 2000,
+      "perKmRate": 800,
+      "perMinRate": 100,
+      "surgeMultiplier": 1.0,
+      "maxSurgeMultiplier": 1.5,
+      "cancellationGracePeriodMin": 3,
+      "noShowFee": 2000,
+      "driverSearchTimeoutSec": 30,
+      "driverSearchRadiusKm": 5,
+      "driverSearchExpansionSteps": [5, 8, 12],
+      "subscriptionMonthlyFee": 50000,
+      "subscriptionGracePeriodDays": 7,
+      "lateFeePerHour": 5000,
+      "depositPercentage": 20,
+      "locationUpdateIntervalSec": 20,
+      "emergencyModeIntervalSec": 30,
+      "emergencyModeActive": false,
+      "referralMonthlyCap": 10,
+      "maxUnsettledDebt": 100000,
+      "economyMultiplier": 1.0,
+      "comfortMultiplier": 1.3,
+      "premiumMultiplier": 1.6,
+      "isServiceEnabled": true,
+      "announcement": null,
+      "announcementUpdatedAt": null
+    }
+  },
+
+  "users": [
+    { "uid": "seed_customer_1", "role": "customer", "email": "ahmad.hariri@example.com", "phone": "+963-988-112233", "displayName": "أحمد الحريري", "preferredLanguage": "ar", "accountStatus": "active" },
+    { "uid": "seed_customer_2", "role": "customer", "email": "lina.zoubi@example.com", "phone": "+963-944-556677", "displayName": "لينا الزعبي", "preferredLanguage": "ar", "accountStatus": "active" },
+    { "uid": "seed_driver_1", "role": "driver", "email": "khaled.masalmeh@example.com", "phone": "+963-955-778899", "displayName": "خالد المصالمة", "preferredLanguage": "ar", "accountStatus": "active" },
+    { "uid": "seed_driver_2", "role": "driver", "email": "rana.abazeid@example.com", "phone": "+963-933-221144", "displayName": "رنا أبازيد", "preferredLanguage": "ar", "accountStatus": "active" },
+    { "uid": "seed_office_1", "role": "officeAdmin", "email": "office.hourani@example.com", "phone": "+963-966-334455", "displayName": "مكتب الحوراني للتأجير", "preferredLanguage": "ar", "accountStatus": "active" }
+  ],
+
+  "drivers": [
+    { "uid": "seed_driver_1", "fullName": "خالد المصالمة", "licenseNumber": "DR-2024-00187", "vehicleType": "اقتصادية", "vehiclePlate": "درعا 41522", "status": "approved", "walletBalance": -15000, "isFemale": false, "rating": 4.8 },
+    { "uid": "seed_driver_2", "fullName": "رنا أبازيد", "licenseNumber": "DR-2024-00294", "vehicleType": "Comfort", "vehiclePlate": "درعا 38810", "status": "approved", "walletBalance": 0, "isFemale": true, "rating": 4.9 }
+  ],
+
+  "offices": [
+    { "officeId": "seed_office_1", "name": "مكتب الحوراني للتأجير", "ownerAdminUid": "seed_office_1", "plan": "standard", "subscriptionStatus": "active", "paymentMethod": "cash" }
+  ],
+
+  "vehicles": [
+    { "vehicleId": "seed_vehicle_1", "officeId": "seed_office_1", "priceDaily": 150000, "priceWeekly": 900000, "priceMonthly": 3200000, "transmission": "automatic", "seats": 5, "licensePlate": "درعا 22190", "status": "available", "features": ["مكيف", "بلوتوث"] },
+    { "vehicleId": "seed_vehicle_2", "officeId": "seed_office_1", "priceDaily": 200000, "priceWeekly": 1200000, "priceMonthly": 4300000, "transmission": "manual", "seats": 7, "licensePlate": "درعا 30071", "status": "available", "features": ["دفع رباعي"] }
+  ],
+
+  "daraaPlaces": [
+    { "name": "دوار المحطة، درعا", "lat": 32.6189, "lng": 36.1021 },
+    { "name": "ساحة الكرك، درعا البلد", "lat": 32.6253, "lng": 36.1064 },
+    { "name": "حي طريق السد، درعا", "lat": 32.6301, "lng": 36.0987 },
+    { "name": "مشفى درعا الوطني", "lat": 32.6224, "lng": 36.1102 },
+    { "name": "جامعة درعا (فرع دمشق)", "lat": 32.6177, "lng": 36.0955 },
+    { "name": "سوق درعا المركزي", "lat": 32.6212, "lng": 36.1030 },
+    { "name": "حي المنشية، درعا", "lat": 32.6155, "lng": 36.1078 },
+    { "name": "طريق نصيب الدولي", "lat": 32.6410, "lng": 36.0790 }
+  ]
+}
